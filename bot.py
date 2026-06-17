@@ -34,6 +34,10 @@ SEEN_HISTORY_LIMIT = 5000
 
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
+# Some servers (e.g. government sites) reject non-browser User-Agents, so send
+# a browser-like one when fetching feeds.
+USER_AGENT = "Mozilla/5.0 (compatible; rss-telegram-bot/1.0)"
+
 
 def load_feeds() -> list[str]:
     urls = []
@@ -107,7 +111,7 @@ def main() -> int:
 
     new_items = []  # (published_sort_key, feed_title, entry)
     for url in feeds:
-        parsed = feedparser.parse(url)
+        parsed = feedparser.parse(url, agent=USER_AGENT)
         if parsed.bozo:
             print(f"WARN: could not fully parse {url}: {parsed.bozo_exception}")
         feed_title = parsed.feed.get("title", url)
