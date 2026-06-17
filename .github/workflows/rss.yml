@@ -1,0 +1,47 @@
+name: RSS to Telegram
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # every 15 minutes (GitHub may delay during busy periods)
+  workflow_dispatch:           # lets you run it manually from the Actions tab
+
+# Allow the job to commit the updated seen.json back to the repo.
+permissions:
+  contents: write
+
+# Don't let two runs overlap and fight over seen.json.
+concurrency:
+  group: rss-to-telegram
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
+
+      - name: Commit updated state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [[ -n "$(git status --porcelain seen.json)" ]]; then
+            git add seen.json
+            git commit -m "Update seen items [skip ci]"
+            git push
+          else
+            echo "No new items; nothing to commit."
+          fi
