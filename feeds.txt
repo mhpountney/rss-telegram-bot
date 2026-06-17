@@ -1,0 +1,4 @@
+# One feed URL per line. Blank lines and lines starting with # are ignored.
+# Replace these examples with your own feeds.
+https://hnrss.org/frontpage
+https://www.theverge.com/rss/index.xml
