@@ -38,10 +38,20 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [[ -n "$(git status --porcelain seen.json)" ]]; then
-            git add seen.json
-            git commit -m "Update seen items [skip ci]"
-            git push
-          else
+          if [[ -z "$(git status --porcelain seen.json)" ]]; then
             echo "No new items; nothing to commit."
+            exit 0
           fi
+          git add seen.json
+          git commit -m "Update seen items [skip ci]"
+          # The remote may have advanced (e.g. when re-running an old run), so
+          # rebase onto it before pushing, and retry to absorb races.
+          for attempt in 1 2 3; do
+            if git pull --rebase origin "$GITHUB_REF_NAME" && git push; then
+              exit 0
+            fi
+            echo "Push attempt $attempt failed; retrying..."
+            sleep 3
+          done
+          echo "Failed to push after 3 attempts." >&2
+          exit 1
