@@ -17,6 +17,11 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    # Hard ceiling so a stuck step can never hang for hours and burn minutes.
+    timeout-minutes: 10
+    env:
+      # Make git fail fast instead of silently waiting on a credential prompt.
+      GIT_TERMINAL_PROMPT: "0"
     steps:
       - uses: actions/checkout@v4
 
