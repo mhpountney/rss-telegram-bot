@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 
 import feedparser
@@ -40,6 +41,22 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Optional fetch proxy (e.g. a Google Apps Script web app) for feeds whose host
+# blocks GitHub's datacenter IPs. When set, feed URLs are fetched as
+#   <FEED_PROXY>?url=<encoded feed url>
+# so the request egresses from the proxy's IP instead of GitHub's.
+FEED_PROXY = os.environ.get("FEED_PROXY", "").strip()
+
+
+def fetch_url(url: str) -> bytes:
+    target = url
+    if FEED_PROXY:
+        sep = "&" if "?" in FEED_PROXY else "?"
+        target = f"{FEED_PROXY}{sep}url={urllib.parse.quote(url, safe='')}"
+    resp = requests.get(target, timeout=45, headers={"User-Agent": USER_AGENT})
+    resp.raise_for_status()
+    return resp.content
 
 
 def load_feeds() -> list[str]:
@@ -112,15 +129,14 @@ def main() -> int:
     if first_run:
         print("First run: seeding seen.json without posting the backlog.")
 
-    new_items = []  # (published_sort_key, feed_title, entry)
+    candidates = []  # (published_sort_key, feed_title, entry, eid)
     for url in feeds:
         try:
-            resp = requests.get(url, timeout=30, headers={"User-Agent": USER_AGENT})
-            resp.raise_for_status()
+            content = fetch_url(url)
         except Exception as exc:  # noqa: BLE001 - skip this feed, keep the rest
             print(f"WARN: could not fetch {url}: {exc}")
             continue
-        parsed = feedparser.parse(resp.content)
+        parsed = feedparser.parse(content)
         if parsed.bozo:
             print(f"WARN: could not fully parse {url}: {parsed.bozo_exception}")
         feed_title = parsed.feed.get("title", url)
@@ -128,23 +144,24 @@ def main() -> int:
             eid = entry_id(entry)
             if eid in seen:
                 continue
-            seen.add(eid)
-            seen_list.append(eid)
+            seen.add(eid)  # avoid collecting the same id twice this run
             if first_run:
+                seen_list.append(eid)  # seed silently, no posting
                 continue
             sort_key = entry.get("published_parsed") or entry.get("updated_parsed")
-            new_items.append((sort_key or time.gmtime(0), feed_title, entry))
+            candidates.append((sort_key or time.gmtime(0), feed_title, entry, eid))
 
     # Post oldest first so the channel reads chronologically.
-    new_items.sort(key=lambda x: x[0])
+    candidates.sort(key=lambda x: x[0])
 
     posted = 0
-    for _, feed_title, entry in new_items:
+    for _, feed_title, entry, eid in candidates:
         try:
             send_to_telegram(token, chat_id, format_message(feed_title, entry))
             posted += 1
+            seen_list.append(eid)  # mark seen ONLY after a successful send
             time.sleep(1)  # be gentle with the Telegram API
-        except Exception as exc:  # noqa: BLE001 - keep going on a single failure
+        except Exception as exc:  # noqa: BLE001 - keep going; retry this item next run
             print(f"WARN: failed to post '{entry.get('title')}': {exc}")
 
     save_seen(seen_list)
