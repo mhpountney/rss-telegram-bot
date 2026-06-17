@@ -15,6 +15,14 @@ from pathlib import Path
 import feedparser
 import requests
 
+# Feed titles can contain non-ASCII characters; force UTF-8 output so logging
+# them never crashes on consoles with a legacy codepage (e.g. Windows cp1252).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 HERE = Path(__file__).parent
 FEEDS_FILE = HERE / "feeds.txt"
 SEEN_FILE = HERE / "seen.json"
@@ -36,15 +44,17 @@ def load_feeds() -> list[str]:
     return urls
 
 
-def load_seen() -> set[str]:
+def load_seen() -> list[str]:
+    # A list (not a set) so the on-disk order is stable across runs and we
+    # only ever produce a diff when genuinely new ids are appended.
     if SEEN_FILE.exists():
-        return set(json.loads(SEEN_FILE.read_text(encoding="utf-8")))
-    return set()
+        return json.loads(SEEN_FILE.read_text(encoding="utf-8"))
+    return []
 
 
-def save_seen(seen: set[str]) -> None:
+def save_seen(seen_list: list[str]) -> None:
     # Keep only the most recent keys to bound file size.
-    trimmed = list(seen)[-SEEN_HISTORY_LIMIT:]
+    trimmed = seen_list[-SEEN_HISTORY_LIMIT:]
     SEEN_FILE.write_text(json.dumps(trimmed, indent=0), encoding="utf-8")
 
 
@@ -89,7 +99,8 @@ def main() -> int:
         print("No feeds configured in feeds.txt.", file=sys.stderr)
         return 1
 
-    seen = load_seen()
+    seen_list = load_seen()
+    seen = set(seen_list)
     first_run = not SEEN_FILE.exists()
     if first_run:
         print("First run: seeding seen.json without posting the backlog.")
@@ -105,6 +116,7 @@ def main() -> int:
             if eid in seen:
                 continue
             seen.add(eid)
+            seen_list.append(eid)
             if first_run:
                 continue
             sort_key = entry.get("published_parsed") or entry.get("updated_parsed")
@@ -122,8 +134,8 @@ def main() -> int:
         except Exception as exc:  # noqa: BLE001 - keep going on a single failure
             print(f"WARN: failed to post '{entry.get('title')}': {exc}")
 
-    save_seen(seen)
-    print(f"Done. Posted {posted} new item(s); tracking {len(seen)} seen id(s).")
+    save_seen(seen_list)
+    print(f"Done. Posted {posted} new item(s); tracking {len(seen_list)} seen id(s).")
     return 0
 
 
