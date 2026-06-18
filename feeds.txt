@@ -1,3 +1,3 @@
 # One feed URL per line. Blank lines and lines starting with # are ignored.
 # Replace these examples with your own feeds.
-https://news.google.com/rss/search?q=site:ministers.dewr.gov.au&hl=en-AU&gl=AU&ceid=AU:en
+https://feeder.co/discover/251b9585be/ministers-dewr-gov-au
